@@ -8,7 +8,6 @@ import pandas as pd
 from io import BytesIO
 
 # Models
-
 def black_scholes(S, K, T, r, sigma, option_type="call"):
     d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
     d2 = d1 - sigma * np.sqrt(T)
@@ -34,7 +33,8 @@ def calculate_var_es(returns, confidence_level):
     return var, es
 
 # Streamlit App
-st.title("Options Pricing Calculator")
+st.title("European Options Pricing")
+st.subheader("Based on the Black-Scholes Model")
 
 # Inputs
 with st.sidebar:
@@ -43,7 +43,7 @@ with st.sidebar:
     real_time_price = fetch_real_time_price(ticker)
     if real_time_price:
         S = real_time_price
-        st.success(f"Current Stock Price: ${S:.2f}")
+        st.success(f"Current Stock Price: ${S:,.2f}")
     else:
         S = st.number_input("Stock Price", min_value=1.0, value=100.0)
 
@@ -66,35 +66,35 @@ total_cost = (option_price + fee) * contracts * 100
 
 # Outputs
 st.header("Results")
-st.write(f"**Option Price:** ${option_price:.2f}")
-st.write(f"**Total Cost for {contracts} Contracts (including fees):** ${total_cost:.2f}")
+st.write(f"**Option Price:** ${option_price:,.2f}")
+st.write(f"**Total Cost for {contracts} Contracts (including fees):** ${total_cost:,.2f}")
 
 # Risk Metrics
 st.subheader("Risk Metrics")
 simulated_returns = np.random.normal(loc=r - 0.5 * sigma ** 2, scale=sigma, size=1000) * contracts * 100
 var, es = calculate_var_es(simulated_returns, confidence_level)
-st.write(f"Value at Risk (VaR) at {confidence_level*100:.0f}% confidence: ${var:.2f}")
-st.write(f"Expected Shortfall (ES) at {confidence_level*100:.0f}% confidence: ${es:.2f}")
+st.write(f"Value at Risk (VaR) at {confidence_level*100:.0f}% confidence: ${var:,.2f}")
+st.write(f"Expected Shortfall (ES) at {confidence_level*100:.0f}% confidence: ${es:,.2f}")
 
 # Greeks Calculation
 def calculate_greeks(S, K, T, r, sigma, option_type="call"):
     d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
     d2 = d1 - sigma * np.sqrt(T)
-    delta = norm.cdf(d1) if option_type == "call" else norm.cdf(d1) - 1
-    gamma = norm.pdf(d1) / (S * sigma * np.sqrt(T))
-    theta = -((S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T))) - (r * K * exp(-r * T) * (norm.cdf(d2) if option_type == "call" else norm.cdf(-d2)))
-    vega = S * norm.pdf(d1) * np.sqrt(T) / 100
-    rho = (K * T * exp(-r * T) * (norm.cdf(d2) if option_type == "call" else -norm.cdf(-d2))) / 100
+    delta = max(norm.cdf(d1) if option_type == "call" else norm.cdf(d1) - 1, 1e-7)
+    gamma = max(norm.pdf(d1) / (S * sigma * np.sqrt(T)), 1e-7)
+    theta = max(-((S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T))) - (r * K * exp(-r * T) * (norm.cdf(d2) if option_type == "call" else norm.cdf(-d2))), 1e-7)
+    vega = max(S * norm.pdf(d1) * np.sqrt(T) / 100, 1e-7)
+    rho = max((K * T * exp(-r * T) * (norm.cdf(d2) if option_type == "call" else -norm.cdf(-d2))) / 100, 1e-7)
     return {"Delta": delta, "Gamma": gamma, "Theta": theta, "Vega": vega, "Rho": rho}
 
 greeks = calculate_greeks(S, K, T, r, sigma, option_type=option_type.lower())
 st.subheader("Greeks")
 columns = st.columns(3)
-columns[0].write(f"Delta: {greeks['Delta']:.4f}")
-columns[1].write(f"Gamma: {greeks['Gamma']:.4f}")
-columns[2].write(f"Theta: {greeks['Theta']:.4f}")
-columns[0].write(f"Vega: {greeks['Vega']:.4f}")
-columns[1].write(f"Rho: {greeks['Rho']:.4f}")
+columns[0].write(f"Delta (Per %): {greeks['Delta']:.4E}")
+columns[1].write(f"Gamma (Per $$): {greeks['Gamma']:.4E}")
+columns[2].write(f"Theta (Per Day): {greeks['Theta']:.4E}")
+columns[0].write(f"Vega (Per %): {greeks['Vega']:.4E}")
+columns[1].write(f"Rho (Per %): {greeks['Rho']:.4E}")
 
 # Payoff Diagram
 st.subheader("Payoff Diagram")
@@ -104,18 +104,18 @@ if option_type.lower() == "call":
 else:
     payoff = np.maximum(K - S_range, 0) - option_price - fee
 
-break_even = K + option_price if option_type.lower() == "call" else K - option_price
+break_even = S_range[np.argmin(np.abs(payoff))]
 
 fig, ax = plt.subplots()
 ax.plot(S_range, payoff, label="Payoff")
 ax.axhline(0, color="black", linestyle="--")
-ax.axvline(break_even, color="blue", linestyle="--", label=f"Break Even: ${break_even:.2f}")
+ax.axvline(break_even, color="blue", linestyle="--", label=f"Break Even: ${break_even:,.2f}")
 ax.set_title("Payoff Diagram")
 ax.set_xlabel("Stock Price (S)")
 ax.set_ylabel("Payoff ($)")
 ax.legend()
 st.pyplot(fig)
-st.write(f"Break Even Point: ${break_even:.2f}")
+st.write(f"Break Even Point: ${break_even:,.2f}")
 
 # Heatmap of Option Prices (Spot Price vs Volatility)
 st.subheader("Heatmap: Option Price vs Volatility")
@@ -126,14 +126,23 @@ heatmap_data = np.array([
     for vol in volatility_range
 ])
 
-fig, ax = plt.subplots()
+fig, ax = plt.subplots(figsize=(10, 7.5))
 c = ax.imshow(heatmap_data, aspect="auto", cmap="RdYlGn", origin="lower",
               extent=[spot_prices.min(), spot_prices.max(), volatility_range.min(), volatility_range.max()])
+# Print the option prices in the heatmap cells with 20% tighter spacing
+for i in range(len(volatility_range)):
+    for j in range(len(spot_prices)):
+        scaled_x = spot_prices[j] - 0.1 * (spot_prices[j] - spot_prices.mean())
+        scaled_y = volatility_range[i] - 0.1 * (volatility_range[i] - volatility_range.mean())
+        text = ax.text(scaled_x, scaled_y, f"{heatmap_data[i, j]:.2f}",
+                       ha="center", va="center", color="black", fontsize=10)
+
 fig.colorbar(c, ax=ax, label="Option Price ($)")
 ax.set_title(option_type.upper())
 ax.set_xlabel("Spot Price ($)")
 ax.set_ylabel("Volatility")
 st.pyplot(fig)
+
 
 # PnL Matrix
 st.subheader("PnL Matrix")
@@ -143,7 +152,7 @@ for i, vol in enumerate(volatility_range):
         pnl_matrix[i, j] = (heatmap_data[i, j] - option_price - fee) * contracts * 100
 
 pnl_df = pd.DataFrame(pnl_matrix, index=[f"{vol:.2f}" for vol in volatility_range], columns=[f"{spot:.2f}" for spot in spot_prices])
-st.dataframe(pnl_df.style.applymap(lambda x: f"color: {'#39e75f' if x > 0 else '#ee2400'}").format("${:.2f}"))
+st.dataframe(pnl_df.style.applymap(lambda x: f"color: {'#39e75f' if x > 0 else '#ee2400'}").format("${:,.2f}"))
 st.write("X-axis: Spot Prices ($), Y-axis: Volatility")
 
 # Export Functionality
